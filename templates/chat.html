@@ -108,12 +108,19 @@
       const senderList = document.getElementById("sender-list");
       senderList.innerHTML = "<strong>Contacts:</strong><br>";
 
-      Object.keys(data).forEach(name => {
-        const btn = document.createElement("button");
-        btn.textContent = name;
-        btn.onclick = () => showChatWith(name);
-        senderList.appendChild(btn);
-      });
+    Object.keys(data).forEach((name, index) => {
+    const btn = document.createElement("button");
+    btn.textContent = name;
+    btn.id = "btn-" + name;
+    btn.onclick = () => showChatWith(name);
+    senderList.appendChild(btn);
+
+  // Auto-select first user on load
+  if (!selectedUser && index === 0) {
+    showChatWith(name);
+  }
+});
+
 
       if (selectedUser) showChatWith(selectedUser);
     }
