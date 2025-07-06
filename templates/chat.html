@@ -1,190 +1,150 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Chat - WhatsApp Clone</title>
-  <style>
-    body {
-      font-family: sans-serif;
-      margin: 0;
-      padding: 0;
-    }
-
-    h3 {
-      margin: 10px;
-    }
-
-    a {
-      float: right;
-      margin-right: 20px;
-    }
-
-    .container {
-      display: flex;
-      height: calc(100vh - 50px);
-    }
-
-    #sender-list {
-      width: 200px;
-      border-right: 1px solid gray;
-      padding: 10px;
-      overflow-y: auto;
-      background: #f2f2f2;
-    }
-
-    #sender-list button {
-      width: 100%;
-      padding: 8px;
-      margin: 5px 0;
-      text-align: left;
-      border: none;
-      background: #fff;
-      cursor: pointer;
-      border-radius: 4px;
-    }
-
-    #sender-list button:hover {
-      background-color: #ddd;
-    }
-
-    #chat-box {
-      flex: 1;
-      padding: 15px;
-      display: flex;
-      flex-direction: column;
-    }
-
-    #messages {
-      flex: 1;
-      border: 1px solid #ccc;
-      padding: 10px;
-      overflow-y: auto;
-      margin-bottom: 10px;
-      background: #f9f9f9;
-    }
-
-    textarea, input, button {
-      padding: 10px;
-      margin: 5px 0;
-      width: 100%;
-    }
-  </style>
+    <title>Chat</title>
+    <style>
+        body { font-family: Arial; display: flex; }
+        #sender-list { width: 25%; border-right: 1px solid #ccc; padding: 10px; }
+        #chat-box { width: 75%; padding: 10px; }
+        #messages { height: 300px; overflow-y: scroll; border: 1px solid #ccc; padding: 5px; }
+        textarea { width: 100%; height: 50px; margin-top: 5px; }
+        #emoji-bar { font-size: 22px; margin: 5px 0; user-select: none; cursor: pointer; }
+        #emoji-bar span { padding: 4px; }
+    </style>
 </head>
 <body>
-  <h3>Welcome, {{ username }} <a href="/logout">Logout</a></h3>
-  <div class="container">
-    <!-- Sender List -->
-    <div id="sender-list">
-      <strong>Contacts:</strong>
-    </div>
+<div id="sender-list">
+    <h3>Welcome, {{ username }}</h3>
+    <a href="/logout">Logout</a> | 
+    <a href="/group">+ Group</a> | 
+    <a href="/group/add">Add to Group</a>
+    <hr>
+    <div id="senders"></div>
+</div>
 
-    <!-- Chat Window -->
-    <div id="chat-box">
-      <div id="messages">Select a user to see messages.</div>
+<div id="chat-box">
+    <div id="members" style="font-size: small; color: gray;"></div>
+    <div id="messages">Select a user to see messages.</div>
+    <div id="typing-status" style="font-size: small; color: gray;"></div>
+    <div id="emoji-bar">😀 😍 😂 🤔 😢 😎 🙄 🎉 ❤️ 🔥 👍 👎 🙌 🐍 🚀 💡</div>
+    <form onsubmit="sendMessage(event)">
+        <textarea id="message" placeholder="Type your message here..."></textarea>
+        <input type="file" id="fileInput">
+        <button type="submit">Send</button>
+    </form>
+</div>
 
-      <!-- Send Text -->
-      <form id="send-form">
-        <textarea id="message" placeholder="Type your message here..." required></textarea>
-        <button type="submit">Send Message</button>
-      </form>
+<script>
+let selectedUser = "", allMessages = {};
 
-      <!-- Send File -->
-      <form id="file-form" enctype="multipart/form-data">
-        <input type="file" id="file" required>
-        <button type="submit">Send File</button>
-      </form>
-    </div>
-  </div>
-
-  <script>
-  const user = "{{ username }}";
-  let selectedUser = null;
-  let allMessages = {};
-
-  async function fetchConversations() {
-    const res = await fetch("/api/receive");
-    const data = await res.json();
+function fetchMessages() {
+  fetch("/api/receive").then(res => res.json()).then(data => {
     allMessages = data;
-
-    const senderList = document.getElementById("sender-list");
-    senderList.innerHTML = "<strong>Contacts:</strong><br>";
-
-    Object.keys(data).forEach((name, index) => {
-      const btn = document.createElement("button");
-      btn.textContent = name;
-      btn.id = "btn-" + name;
-      btn.onclick = () => showChatWith(name);
-      senderList.appendChild(btn);
-
-      // Auto-select the first contact
-      if (!selectedUser && index === 0) {
-        showChatWith(name);
-      }
-    });
-
+    let html = "";
+    for (let user in data) {
+      html += `<button onclick="showChatWith('${user}')" id="btn-${user}">${user}</button><br>`;
+    }
+    document.getElementById("senders").innerHTML = html;
     if (selectedUser) showChatWith(selectedUser);
-  }
+  });
+}
+setInterval(fetchMessages, 2000);
+fetchMessages();
 
-  function showChatWith(username) {
-    selectedUser = username;
+function showChatWith(username) {
+  selectedUser = username;
+  document.querySelectorAll("#sender-list button").forEach(btn => btn.style.background = "#fff");
+  const selectedBtn = document.getElementById("btn-" + username);
+  if (selectedBtn) selectedBtn.style.background = "#d0f0ff";
 
-    // Highlight selected button
-    document.querySelectorAll("#sender-list button").forEach(btn => {
-      btn.style.background = "#fff";
+  const messagesDiv = document.getElementById("messages");
+  messagesDiv.innerHTML = "";
+  const msgs = allMessages[username] || [];
+
+  msgs.forEach(msg => {
+    let line = `<div><strong>${msg.sender}</strong>: `;
+    line += msg.type === "text" ? msg.content :
+            `<a href="/media/${msg.content}" target="_blank">${msg.content}</a>`;
+    const time = new Date(msg.timestamp).toLocaleString();
+    line += ` <small style="float:right;color:gray;">${time}</small></div>`;
+    messagesDiv.innerHTML += line;
+  });
+
+  messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  document.getElementById("message").focus();
+
+  fetch("/api/group-members/" + username)
+    .then(res => res.json())
+    .then(data => {
+      document.getElementById("members").innerText =
+        data.length ? "👥 Group Members: " + data.join(", ") : "";
     });
-    const selectedBtn = document.getElementById("btn-" + username);
-    if (selectedBtn) selectedBtn.style.background = "#d0f0ff";
+}
 
-    const messagesDiv = document.getElementById("messages");
-    messagesDiv.innerHTML = "";
+function sendMessage(e) {
+  e.preventDefault();
+  const msg = document.getElementById("message").value.trim();
+  const fileInput = document.getElementById("fileInput");
 
-    const msgs = allMessages[username] || [];
-    msgs.forEach(msg => {
-      let line = `<div><strong>${msg.sender}</strong>: `;
-      if (msg.type === "text") {
-        line += msg.content;
-      } else if (msg.type === "file") {
-        line += `<a href="/media/${msg.content}" target="_blank">${msg.content}</a>`;
-      }
-      const time = new Date(msg.timestamp).toLocaleString();
-      line += ` <small style="float:right;color:gray;">${time}</small>`;
-      line += "</div>";
-      messagesDiv.innerHTML += line;
-    });
-
-    messagesDiv.scrollTop = messagesDiv.scrollHeight;
-  }
-
-  document.getElementById("send-form").addEventListener("submit", async e => {
-    e.preventDefault();
-    const content = document.getElementById("message").value;
-    if (!selectedUser) return alert("Select a user first!");
-    await fetch("/api/send", {
+  if (msg && selectedUser) {
+    fetch("/api/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ receiver: selectedUser, type: "text", content })
+      body: JSON.stringify({ receiver: selectedUser, content: msg, type: "text", receiver_type: "user" })
     });
     document.getElementById("message").value = "";
-    fetchConversations();
-  });
+  }
 
-  document.getElementById("file-form").addEventListener("submit", async e => {
-    e.preventDefault();
-    if (!selectedUser) return alert("Select a user first!");
-    const file = document.getElementById("file").files[0];
+  if (fileInput.files.length > 0 && selectedUser) {
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("file", fileInput.files[0]);
     formData.append("receiver", selectedUser);
-    await fetch("/api/upload", {
-      method: "POST",
-      body: formData
-    });
-    document.getElementById("file").value = "";
-    fetchConversations();
+    formData.append("receiver_type", "user");
+    fetch("/api/upload", { method: "POST", body: formData });
+    fileInput.value = "";
+  }
+}
+
+document.querySelectorAll("#emoji-bar").forEach(bar => {
+  bar.innerHTML = bar.innerText.split(" ").map(e => `<span>${e}</span>`).join(" ");
+  bar.addEventListener("click", function (e) {
+    if (e.target.tagName === "SPAN") {
+      const emoji = e.target.innerText;
+      const textarea = document.getElementById("message");
+      textarea.value += emoji;
+      textarea.focus();
+    }
   });
+});
 
-  fetchConversations();
-  setInterval(fetchConversations, 4000);
+// Typing status
+document.getElementById("message").addEventListener("input", () => {
+  if (!selectedUser) return;
+  fetch("/api/typing", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ receiver: selectedUser, receiver_type: "user", is_typing: 1 })
+  });
+  clearTimeout(window.typingTimer);
+  window.typingTimer = setTimeout(() => {
+    fetch("/api/typing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ receiver: selectedUser, receiver_type: "user", is_typing: 0 })
+    });
+  }, 1500);
+});
+
+function checkTyping() {
+  if (!selectedUser) return;
+  fetch("/api/typing/" + selectedUser)
+    .then(res => res.json())
+    .then(data => {
+      document.getElementById("typing-status").innerText = data.length ? `📝 ${data.join(", ")} is typing...` : "";
+    });
+  setTimeout(checkTyping, 1500);
+}
+checkTyping();
 </script>
-
 </body>
 </html>
