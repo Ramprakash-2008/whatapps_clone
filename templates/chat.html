@@ -19,7 +19,7 @@
     <a href="/group">+ Group</a> | 
     <a href="/group/add">Add to Group</a>
     <hr>
-    <div id="senders"></div>
+    <div id="senders">Loading users...</div>
 </div>
 
 <div id="chat-box">
@@ -37,19 +37,6 @@
 <script>
 let selectedUser = "", allMessages = {};
 
-function fetchMessages() {
-  fetch("/api/receive").then(res => res.json()).then(data => {
-    allMessages = data;
-    let html = "";
-    for (let user in data) {
-      html += `<button onclick="showChatWith('${user}')" id="btn-${user}">${user}</button><br>`;
-    }
-    document.getElementById("senders").innerHTML = html;
-    if (selectedUser) showChatWith(selectedUser);
-  });
-}
-setInterval(fetchMessages, 2000);
-fetchMessages();
 function fetchAllUsers() {
   fetch("/api/users").then(res => res.json()).then(users => {
     let html = "<b>All Users:</b><br>";
@@ -60,7 +47,25 @@ function fetchAllUsers() {
   });
 }
 
-fetchAllUsers();
+function fetchMessages() {
+  fetch("/api/receive").then(res => res.json()).then(data => {
+    allMessages = data;
+    if (Object.keys(data).length === 0) {
+      fetchAllUsers(); // fallback to show users if no chat history
+      return;
+    }
+
+    let html = "";
+    for (let user in data) {
+      html += `<button onclick="showChatWith('${user}')" id="btn-${user}">${user}</button><br>`;
+    }
+    document.getElementById("senders").innerHTML = html;
+
+    if (selectedUser) showChatWith(selectedUser);
+  });
+}
+setInterval(fetchMessages, 2000);
+fetchMessages();
 
 function showChatWith(username) {
   selectedUser = username;
@@ -128,7 +133,6 @@ document.querySelectorAll("#emoji-bar").forEach(bar => {
   });
 });
 
-// Typing status
 document.getElementById("message").addEventListener("input", () => {
   if (!selectedUser) return;
   fetch("/api/typing", {
