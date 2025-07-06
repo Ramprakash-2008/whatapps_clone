@@ -81,6 +81,12 @@ def login():
         </form>
         <a href="/signup">New user? Sign up here</a>
     '''
+@app.route("/api/users")
+def get_all_users():
+    current = session.get("user")
+    c.execute("SELECT username FROM users WHERE username != ?", (current,))
+    users = [u[0] for u in c.fetchall()]
+    return jsonify(users)
 
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
