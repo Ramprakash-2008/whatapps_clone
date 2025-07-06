@@ -1,88 +1,173 @@
-<!-- templates/chat.html -->
 <!DOCTYPE html>
 <html>
 <head>
   <title>Chat - WhatsApp Clone</title>
   <style>
-    body { font-family: sans-serif; margin: 20px; }
-    textarea, input, button { width: 100%; margin: 5px 0; padding: 10px; }
-    #messages { border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: scroll; background: #f9f9f9; }
-    #user-info { font-weight: bold; }
+    body {
+      font-family: sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+
+    h3 {
+      margin: 10px;
+    }
+
+    a {
+      float: right;
+      margin-right: 20px;
+    }
+
+    .container {
+      display: flex;
+      height: calc(100vh - 50px);
+    }
+
+    #sender-list {
+      width: 200px;
+      border-right: 1px solid gray;
+      padding: 10px;
+      overflow-y: auto;
+      background: #f2f2f2;
+    }
+
+    #sender-list button {
+      width: 100%;
+      padding: 8px;
+      margin: 5px 0;
+      text-align: left;
+      border: none;
+      background: #fff;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+
+    #sender-list button:hover {
+      background-color: #ddd;
+    }
+
+    #chat-box {
+      flex: 1;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #messages {
+      flex: 1;
+      border: 1px solid #ccc;
+      padding: 10px;
+      overflow-y: auto;
+      margin-bottom: 10px;
+      background: #f9f9f9;
+    }
+
+    textarea, input, button {
+      padding: 10px;
+      margin: 5px 0;
+      width: 100%;
+    }
   </style>
 </head>
 <body>
-  <div id="user-info">Logged in as: {{ username }}</div>
-  <a href="/logout">Logout</a>
+  <h3>Welcome, {{ username }} <a href="/logout">Logout</a></h3>
+  <div class="container">
+    <!-- Sender List -->
+    <div id="sender-list">
+      <strong>Contacts:</strong>
+    </div>
 
-  <div id="messages">Loading messages...</div>
+    <!-- Chat Window -->
+    <div id="chat-box">
+      <div id="messages">Select a user to see messages.</div>
 
-  <form id="send-form">
-    <input id="receiver" placeholder="To username" required>
-    <textarea id="message" placeholder="Type your message here"></textarea>
-    <button type="submit">Send Message</button>
-  </form>
+      <!-- Send Text -->
+      <form id="send-form">
+        <textarea id="message" placeholder="Type your message here..." required></textarea>
+        <button type="submit">Send Message</button>
+      </form>
 
-  <form id="file-form" enctype="multipart/form-data">
-    <input id="receiver_file" placeholder="To username" required>
-    <input type="file" id="file">
-    <button type="submit">Send File</button>
-  </form>
+      <!-- Send File -->
+      <form id="file-form" enctype="multipart/form-data">
+        <input type="file" id="file" required>
+        <button type="submit">Send File</button>
+      </form>
+    </div>
+  </div>
 
   <script>
     const user = "{{ username }}";
+    let selectedUser = null;
+    let allMessages = {};
 
-    async function fetchMessages() {
-      const res = await fetch("/api/receive", {
-        headers: { "Authorization": localStorage.getItem("token") || "" }
+    async function fetchConversations() {
+      const res = await fetch("/api/receive");
+      const data = await res.json();
+      allMessages = data;
+
+      const senderList = document.getElementById("sender-list");
+      senderList.innerHTML = "<strong>Contacts:</strong><br>";
+
+      Object.keys(data).forEach(name => {
+        const btn = document.createElement("button");
+        btn.textContent = name;
+        btn.onclick = () => showChatWith(name);
+        senderList.appendChild(btn);
       });
-      if (!res.ok) return;
-      const msgs = await res.json();
-      const div = document.getElementById("messages");
-      div.innerHTML = "";
+
+      if (selectedUser) showChatWith(selectedUser);
+    }
+
+    function showChatWith(username) {
+      selectedUser = username;
+      const messagesDiv = document.getElementById("messages");
+      messagesDiv.innerHTML = "";
+
+      const msgs = allMessages[username] || [];
       msgs.forEach(msg => {
-        let line = `${msg.sender} ➡ ${msg.receiver}: `;
+        let line = `<div><strong>${msg.sender}</strong>: `;
         if (msg.type === "text") {
           line += msg.content;
         } else if (msg.type === "file") {
           line += `<a href="/media/${msg.content}" target="_blank">${msg.content}</a>`;
         }
-        div.innerHTML += `<div>${line}</div>`;
+        line += "</div>";
+        messagesDiv.innerHTML += line;
       });
+
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }
 
     document.getElementById("send-form").addEventListener("submit", async e => {
       e.preventDefault();
-      const receiver = document.getElementById("receiver").value;
       const content = document.getElementById("message").value;
+      if (!selectedUser) return alert("Select a user first!");
       await fetch("/api/send", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": localStorage.getItem("token") || ""
-        },
-        body: JSON.stringify({ receiver, type: "text", content })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ receiver: selectedUser, type: "text", content })
       });
       document.getElementById("message").value = "";
-      fetchMessages();
+      fetchConversations();
     });
 
     document.getElementById("file-form").addEventListener("submit", async e => {
       e.preventDefault();
-      const receiver = document.getElementById("receiver_file").value;
+      if (!selectedUser) return alert("Select a user first!");
       const file = document.getElementById("file").files[0];
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("receiver", receiver);
+      formData.append("receiver", selectedUser);
       await fetch("/api/upload", {
         method: "POST",
-        headers: { "Authorization": localStorage.getItem("token") || "" },
         body: formData
       });
-      fetchMessages();
+      document.getElementById("file").value = "";
+      fetchConversations();
     });
 
-    fetchMessages();
-    setInterval(fetchMessages, 3000);
+    fetchConversations();
+    setInterval(fetchConversations, 4000);
   </script>
 </body>
 </html>
