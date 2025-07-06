@@ -76,18 +76,41 @@ def auth_token():
     return tokens.get(token)
 
 @app.route('/api/register', methods=['POST'])
-def api_register():
-    data = request.json
-    username = data.get("username")
-    password = data.get("password")
-    if not username or not password:
-        return jsonify({"error": "Missing username/password"}), 400
-    c.execute("SELECT * FROM users WHERE username=?", (username,))
-    if c.fetchone():
-        return jsonify({"error": "Username exists"}), 409
-    c.execute("INSERT INTO users VALUES (?, ?)", (username, password))
-    conn.commit()
-    return jsonify({"message": "Account created"})
+@app.route('/api/receive')
+def api_receive():
+    user = auth_token() or session.get('user')
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    # Fetch all messages involving the user
+    c.execute("SELECT sender, receiver, type, content, timestamp FROM messages WHERE sender=? OR receiver=? ORDER BY timestamp",
+              (user, user))
+    rows = c.fetchall()
+
+    # Group messages by conversation partner
+    conversations = {}
+    for r in rows:
+        sender, receiver, msg_type, content, timestamp = r
+
+        # Identify the "other" person in this conversation
+        if sender == user:
+            other = receiver
+        else:
+            other = sender
+
+        if other not in conversations:
+            conversations[other] = []
+
+        conversations[other].append({
+            "sender": sender,
+            "receiver": receiver,
+            "type": msg_type,
+            "content": content,
+            "timestamp": timestamp
+        })
+
+    return jsonify(conversations)
+
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
