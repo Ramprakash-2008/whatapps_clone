@@ -1,0 +1,88 @@
+<!-- templates/chat.html -->
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Chat - WhatsApp Clone</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    textarea, input, button { width: 100%; margin: 5px 0; padding: 10px; }
+    #messages { border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: scroll; background: #f9f9f9; }
+    #user-info { font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div id="user-info">Logged in as: {{ username }}</div>
+  <a href="/logout">Logout</a>
+
+  <div id="messages">Loading messages...</div>
+
+  <form id="send-form">
+    <input id="receiver" placeholder="To username" required>
+    <textarea id="message" placeholder="Type your message here"></textarea>
+    <button type="submit">Send Message</button>
+  </form>
+
+  <form id="file-form" enctype="multipart/form-data">
+    <input id="receiver_file" placeholder="To username" required>
+    <input type="file" id="file">
+    <button type="submit">Send File</button>
+  </form>
+
+  <script>
+    const user = "{{ username }}";
+
+    async function fetchMessages() {
+      const res = await fetch("/api/receive", {
+        headers: { "Authorization": localStorage.getItem("token") || "" }
+      });
+      if (!res.ok) return;
+      const msgs = await res.json();
+      const div = document.getElementById("messages");
+      div.innerHTML = "";
+      msgs.forEach(msg => {
+        let line = `${msg.sender} ➡ ${msg.receiver}: `;
+        if (msg.type === "text") {
+          line += msg.content;
+        } else if (msg.type === "file") {
+          line += `<a href="/media/${msg.content}" target="_blank">${msg.content}</a>`;
+        }
+        div.innerHTML += `<div>${line}</div>`;
+      });
+    }
+
+    document.getElementById("send-form").addEventListener("submit", async e => {
+      e.preventDefault();
+      const receiver = document.getElementById("receiver").value;
+      const content = document.getElementById("message").value;
+      await fetch("/api/send", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": localStorage.getItem("token") || ""
+        },
+        body: JSON.stringify({ receiver, type: "text", content })
+      });
+      document.getElementById("message").value = "";
+      fetchMessages();
+    });
+
+    document.getElementById("file-form").addEventListener("submit", async e => {
+      e.preventDefault();
+      const receiver = document.getElementById("receiver_file").value;
+      const file = document.getElementById("file").files[0];
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("receiver", receiver);
+      await fetch("/api/upload", {
+        method: "POST",
+        headers: { "Authorization": localStorage.getItem("token") || "" },
+        body: formData
+      });
+      fetchMessages();
+    });
+
+    fetchMessages();
+    setInterval(fetchMessages, 3000);
+  </script>
+</body>
+</html>

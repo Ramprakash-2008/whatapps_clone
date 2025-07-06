@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: whatsapp-clone-chat
+    env: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python api.py"
+    autoDeploy: true
