@@ -1,107 +1,229 @@
-from flask import Flask, request, jsonify, render_template, redirect, session, send_from_directory
-from flask_cors import CORS
-import sqlite3, os, datetime, werkzeug
+import os
+import sqlite3
+from flask import Flask, render_template, request, redirect, session, send_from_directory, jsonify
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-CORS(app)
-app.secret_key = "super_secret_key"  # Required for session management
-
-UPLOAD_FOLDER = 'uploads'
+app.secret_key = "supersecretkey"
+UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# --- DB SETUP ---
-conn = sqlite3.connect('chat.db', check_same_thread=False)
+ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "mp4", "mkv", "mov"}
+
+# Database
+conn = sqlite3.connect("chat.db", check_same_thread=False)
 c = conn.cursor()
 
-# Create users and messages table
+# Tables
 c.execute('''CREATE TABLE IF NOT EXISTS users (
     username TEXT PRIMARY KEY,
-    password TEXT
+    password TEXT NOT NULL
 )''')
+
 c.execute('''CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sender TEXT,
     receiver TEXT,
+    receiver_type TEXT DEFAULT 'user',
     type TEXT,
     content TEXT,
-    timestamp TEXT
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
 )''')
 
-# --- In-memory tokens for desktop API login
-tokens = {}
+c.execute('''CREATE TABLE IF NOT EXISTS groups (
+    groupname TEXT PRIMARY KEY
+)''')
 
-# --- ROUTES FOR BROWSER FRONTEND ---
+c.execute('''CREATE TABLE IF NOT EXISTS group_members (
+    groupname TEXT,
+    username TEXT
+)''')
 
-@app.route('/')
-def home():
-    return render_template("login.html")
+c.execute('''CREATE TABLE IF NOT EXISTS typing_status (
+    sender TEXT,
+    receiver TEXT,
+    receiver_type TEXT DEFAULT 'user',
+    is_typing INTEGER DEFAULT 0,
+    PRIMARY KEY (sender, receiver, receiver_type)
+)''')
 
-@app.route('/login', methods=['POST'])
-def login_web():
-    username = request.form.get("username")
-    password = request.form.get("password")
-    c.execute("SELECT * FROM users WHERE username=? AND password=?", (username, password))
-    if c.fetchone():
-        session['user'] = username
-        return redirect('/chat')
-    return "❌ Invalid login. <a href='/'>Try again</a>"
+conn.commit()
 
-@app.route('/register', methods=['POST'])
-def register_web():
-    username = request.form.get("username")
-    password = request.form.get("password")
-    c.execute("SELECT * FROM users WHERE username=?", (username,))
-    if c.fetchone():
-        return "⚠️ Username exists. <a href='/'>Try again</a>"
-    c.execute("INSERT INTO users VALUES (?, ?)", (username, password))
-    conn.commit()
-    session['user'] = username
-    return redirect('/chat')
+def allowed_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
-@app.route('/chat')
-def chat_page():
-    if 'user' not in session:
-        return redirect('/')
-    return render_template("chat.html", username=session['user'])
+def auth_user():
+    return session.get("user")
 
-@app.route('/logout')
+@app.route("/")
+def index():
+    if "user" in session:
+        return redirect("/chat")
+    return redirect("/login")
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form["username"].strip()
+        password = request.form["password"]
+        c.execute("SELECT * FROM users WHERE username=? AND password=?", (username, password))
+        user = c.fetchone()
+        if user:
+            session["user"] = username
+            return redirect("/chat")
+        return "Invalid credentials. <a href='/login'>Try again</a>"
+    return '''
+        <h2>Login</h2>
+        <form method="post">
+            Username: <input name="username" required><br>
+            Password: <input type="password" name="password" required><br>
+            <button type="submit">Login</button>
+        </form>
+        <a href="/signup">New user? Sign up here</a>
+    '''
+
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+    if request.method == "POST":
+        username = request.form["username"].strip()
+        password = request.form["password"]
+        c.execute("SELECT * FROM users WHERE username=?", (username,))
+        if c.fetchone():
+            return "Username already exists. <a href='/signup'>Try another</a>"
+        c.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
+        conn.commit()
+        return "Account created. <a href='/login'>Login</a>"
+    return '''
+        <h2>Signup</h2>
+        <form method="post">
+            Username: <input name="username" required><br>
+            Password: <input type="password" name="password" required><br>
+            <button type="submit">Sign up</button>
+        </form>
+        <a href="/login">Already have an account?</a>
+    '''
+
+@app.route("/logout")
 def logout():
-    session.clear()
-    return redirect('/')
+    session.pop("user", None)
+    return redirect("/login")
 
-# --- API ROUTES FOR GUI/JS CLIENTS ---
+@app.route("/chat")
+def chat():
+    if "user" not in session:
+        return redirect("/login")
+    return render_template("chat.html", username=session["user"])
 
-def auth_token():
-    token = request.headers.get("Authorization")
-    return tokens.get(token)
+@app.route("/group", methods=["GET", "POST"])
+def group():
+    if "user" not in session:
+        return redirect("/login")
+    if request.method == "POST":
+        groupname = request.form["groupname"].strip()
+        c.execute("SELECT * FROM groups WHERE groupname=?", (groupname,))
+        if c.fetchone():
+            return "Group already exists. <a href='/group'>Try another</a>"
+        c.execute("INSERT INTO groups (groupname) VALUES (?)", (groupname,))
+        c.execute("INSERT INTO group_members (groupname, username) VALUES (?, ?)", (groupname, session["user"]))
+        conn.commit()
+        return "Group created and joined! <a href='/chat'>Chat</a>"
+    return '''
+        <h2>Create Group</h2>
+        <form method="post">
+            Group Name: <input name="groupname" required><br>
+            <button type="submit">Create & Join</button>
+        </form>
+        <a href="/chat">Back to Chat</a>
+    '''
 
-@app.route('/api/register', methods=['POST'])
-@app.route('/api/receive')
+@app.route("/group/add", methods=["GET", "POST"])
+def add_member():
+    if "user" not in session:
+        return redirect("/login")
+    if request.method == "POST":
+        groupname = request.form["groupname"].strip()
+        member = request.form["username"].strip()
+        c.execute("SELECT * FROM group_members WHERE groupname=? AND username=?", (groupname, session["user"]))
+        if not c.fetchone():
+            return "You're not in the group. <a href='/group/add'>Try again</a>"
+        c.execute("SELECT * FROM users WHERE username=?", (member,))
+        if not c.fetchone():
+            return "User does not exist. <a href='/group/add'>Try again</a>"
+        c.execute("SELECT * FROM group_members WHERE groupname=? AND username=?", (groupname, member))
+        if c.fetchone():
+            return "User already in group. <a href='/group/add'>Try again</a>"
+        c.execute("INSERT INTO group_members (groupname, username) VALUES (?, ?)", (groupname, member))
+        conn.commit()
+        return f"Added {member} to '{groupname}'! <a href='/chat'>Chat</a>"
+    return '''
+        <h2>Add Member to Group</h2>
+        <form method="post">
+            Group Name: <input name="groupname" required><br>
+            Username to Add: <input name="username" required><br>
+            <button type="submit">Add Member</button>
+        </form>
+        <a href="/chat">Back to Chat</a>
+    '''
+
+@app.route("/api/send", methods=["POST"])
+def api_send():
+    data = request.get_json()
+    sender = auth_user()
+    receiver = data.get("receiver")
+    content = data.get("content", "").strip()
+    msg_type = data.get("type", "text")
+    receiver_type = data.get("receiver_type", "user")
+
+    if not sender or not receiver or not content:
+        return jsonify({"error": "Missing data"}), 400
+
+    c.execute("INSERT INTO messages (sender, receiver, receiver_type, type, content) VALUES (?, ?, ?, ?, ?)",
+              (sender, receiver, receiver_type, msg_type, content))
+    conn.commit()
+    return jsonify({"success": True})
+
+@app.route("/api/upload", methods=["POST"])
+def api_upload():
+    sender = auth_user()
+    receiver = request.form.get("receiver")
+    receiver_type = request.form.get("receiver_type", "user")
+    file = request.files.get("file")
+
+    if not sender or not receiver or not file:
+        return jsonify({"error": "Missing data"}), 400
+
+    if not allowed_file(file.filename):
+        return jsonify({"error": "File not allowed"}), 400
+
+    filename = secure_filename(file.filename)
+    file.save(os.path.join(UPLOAD_FOLDER, filename))
+
+    c.execute("INSERT INTO messages (sender, receiver, receiver_type, type, content) VALUES (?, ?, ?, ?, ?)",
+              (sender, receiver, receiver_type, "file", filename))
+    conn.commit()
+    return jsonify({"success": True})
+
+@app.route("/media/<filename>")
+def media(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename)
+
+@app.route("/api/receive")
 def api_receive():
-    user = auth_token() or session.get('user')
+    user = auth_user()
     if not user:
-        return jsonify({'error': 'Unauthorized'}), 401
+        return jsonify({"error": "Unauthorized"}), 401
 
-    # Fetch all messages involving the user
-    c.execute("SELECT sender, receiver, type, content, timestamp FROM messages WHERE sender=? OR receiver=? ORDER BY timestamp",
-              (user, user))
+    c.execute("SELECT sender, receiver, receiver_type, type, content, timestamp FROM messages WHERE sender=? OR receiver=? OR receiver IN (SELECT groupname FROM group_members WHERE username=?) ORDER BY timestamp",
+              (user, user, user))
     rows = c.fetchall()
 
-    # Group messages by conversation partner
     conversations = {}
     for r in rows:
-        sender, receiver, msg_type, content, timestamp = r
-
-        # Identify the "other" person in this conversation
-        if sender == user:
-            other = receiver
-        else:
-            other = sender
-
-        if other not in conversations:
-            conversations[other] = []
-
-        conversations[other].append({
+        sender, receiver, receiver_type, msg_type, content, timestamp = r
+        target = receiver if receiver_type == "group" else (receiver if sender == user else sender)
+        if target not in conversations:
+            conversations[target] = []
+        conversations[target].append({
             "sender": sender,
             "receiver": receiver,
             "type": msg_type,
@@ -111,71 +233,37 @@ def api_receive():
 
     return jsonify(conversations)
 
+@app.route("/api/group-members/<groupname>")
+def api_group_members(groupname):
+    c.execute("SELECT username FROM group_members WHERE groupname=?", (groupname,))
+    members = [row[0] for row in c.fetchall()]
+    return jsonify(members)
 
-@app.route('/api/login', methods=['POST'])
-def api_login():
-    data = request.json
-    username = data.get("username")
-    password = data.get("password")
-    c.execute("SELECT * FROM users WHERE username=? AND password=?", (username, password))
-    if not c.fetchone():
-        return jsonify({"error": "Invalid credentials"}), 401
-    token = os.urandom(12).hex()
-    tokens[token] = username
-    return jsonify({"token": token})
-
-@app.route('/api/send', methods=['POST'])
-def api_send():
-    user = auth_token()
-    if not user:
-        return jsonify({'error': 'Unauthorized'}), 401
-    data = request.json
+@app.route("/api/typing", methods=["POST"])
+def api_typing():
+    data = request.get_json()
+    sender = auth_user()
     receiver = data.get("receiver")
-    msg_type = data.get("type", "text")
-    content = data.get("content", "")
-    timestamp = datetime.datetime.now().isoformat()
-    c.execute("INSERT INTO messages (sender, receiver, type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
-              (user, receiver, msg_type, content, timestamp))
+    receiver_type = data.get("receiver_type", "user")
+    is_typing = int(data.get("is_typing", 0))
+
+    if not sender or not receiver:
+        return jsonify({"error": "Missing"}), 400
+
+    c.execute("REPLACE INTO typing_status (sender, receiver, receiver_type, is_typing) VALUES (?, ?, ?, ?)",
+              (sender, receiver, receiver_type, is_typing))
     conn.commit()
-    return jsonify({"message": "Message sent"})
+    return jsonify({"success": True})
 
-@app.route('/api/receive')
-def api_receive():
-    user = auth_token()
-    if not user:
-        return jsonify({'error': 'Unauthorized'}), 401
-    c.execute("SELECT sender, receiver, type, content, timestamp FROM messages WHERE sender=? OR receiver=? ORDER BY timestamp",
-              (user, user))
-    rows = c.fetchall()
-    return jsonify([
-        {"sender": r[0], "receiver": r[1], "type": r[2], "content": r[3], "timestamp": r[4]}
-        for r in rows
-    ])
+@app.route("/api/typing/<target>")
+def get_typing_status(target):
+    user = auth_user()
+    c.execute('''
+        SELECT sender FROM typing_status 
+        WHERE receiver=? AND receiver_type='user' AND is_typing=1 AND sender != ?
+    ''', (user, user))
+    users_typing = [row[0] for row in c.fetchall()]
+    return jsonify(users_typing)
 
-@app.route('/api/upload', methods=['POST'])
-def api_upload():
-    user = auth_token()
-    if not user:
-        return jsonify({'error': 'Unauthorized'}), 401
-    file = request.files['file']
-    receiver = request.form.get("receiver")
-    filename = werkzeug.utils.secure_filename(file.filename)
-    if file and len(file.read()) <= 60 * 1024 * 1024:
-        file.seek(0)
-        filepath = os.path.join(UPLOAD_FOLDER, filename)
-        file.save(filepath)
-        timestamp = datetime.datetime.now().isoformat()
-        c.execute("INSERT INTO messages (sender, receiver, type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
-                  (user, receiver, "file", filename, timestamp))
-        conn.commit()
-        return jsonify({"message": "File uploaded"})
-    return jsonify({"error": "File too large or missing"}), 400
-
-@app.route('/media/<filename>')
-def media(filename):
-    return send_from_directory(UPLOAD_FOLDER, filename)
-
-# --- Start the Flask App ---
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+if __name__ == "__main__":
+    app.run(debug=True)
