@@ -96,85 +96,95 @@
   </div>
 
   <script>
-    const user = "{{ username }}";
-    let selectedUser = null;
-    let allMessages = {};
+  const user = "{{ username }}";
+  let selectedUser = null;
+  let allMessages = {};
 
-    async function fetchConversations() {
-      const res = await fetch("/api/receive");
-      const data = await res.json();
-      allMessages = data;
+  async function fetchConversations() {
+    const res = await fetch("/api/receive");
+    const data = await res.json();
+    allMessages = data;
 
-      const senderList = document.getElementById("sender-list");
-      senderList.innerHTML = "<strong>Contacts:</strong><br>";
+    const senderList = document.getElementById("sender-list");
+    senderList.innerHTML = "<strong>Contacts:</strong><br>";
 
     Object.keys(data).forEach((name, index) => {
-    const btn = document.createElement("button");
-    btn.textContent = name;
-    btn.id = "btn-" + name;
-    btn.onclick = () => showChatWith(name);
-    senderList.appendChild(btn);
+      const btn = document.createElement("button");
+      btn.textContent = name;
+      btn.id = "btn-" + name;
+      btn.onclick = () => showChatWith(name);
+      senderList.appendChild(btn);
 
-  // Auto-select first user on load
-  if (!selectedUser && index === 0) {
-    showChatWith(name);
+      // Auto-select the first contact
+      if (!selectedUser && index === 0) {
+        showChatWith(name);
+      }
+    });
+
+    if (selectedUser) showChatWith(selectedUser);
   }
-});
 
+  function showChatWith(username) {
+    selectedUser = username;
 
-      if (selectedUser) showChatWith(selectedUser);
-    }
+    // Highlight selected button
+    document.querySelectorAll("#sender-list button").forEach(btn => {
+      btn.style.background = "#fff";
+    });
+    const selectedBtn = document.getElementById("btn-" + username);
+    if (selectedBtn) selectedBtn.style.background = "#d0f0ff";
 
-    function showChatWith(username) {
-      selectedUser = username;
-      const messagesDiv = document.getElementById("messages");
-      messagesDiv.innerHTML = "";
+    const messagesDiv = document.getElementById("messages");
+    messagesDiv.innerHTML = "";
 
-      const msgs = allMessages[username] || [];
-      msgs.forEach(msg => {
-        let line = `<div><strong>${msg.sender}</strong>: `;
-        if (msg.type === "text") {
-          line += msg.content;
-        } else if (msg.type === "file") {
-          line += `<a href="/media/${msg.content}" target="_blank">${msg.content}</a>`;
-        }
-        line += "</div>";
-        messagesDiv.innerHTML += line;
-      });
-
-      messagesDiv.scrollTop = messagesDiv.scrollHeight;
-    }
-
-    document.getElementById("send-form").addEventListener("submit", async e => {
-      e.preventDefault();
-      const content = document.getElementById("message").value;
-      if (!selectedUser) return alert("Select a user first!");
-      await fetch("/api/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ receiver: selectedUser, type: "text", content })
-      });
-      document.getElementById("message").value = "";
-      fetchConversations();
+    const msgs = allMessages[username] || [];
+    msgs.forEach(msg => {
+      let line = `<div><strong>${msg.sender}</strong>: `;
+      if (msg.type === "text") {
+        line += msg.content;
+      } else if (msg.type === "file") {
+        line += `<a href="/media/${msg.content}" target="_blank">${msg.content}</a>`;
+      }
+      const time = new Date(msg.timestamp).toLocaleString();
+      line += ` <small style="float:right;color:gray;">${time}</small>`;
+      line += "</div>";
+      messagesDiv.innerHTML += line;
     });
 
-    document.getElementById("file-form").addEventListener("submit", async e => {
-      e.preventDefault();
-      if (!selectedUser) return alert("Select a user first!");
-      const file = document.getElementById("file").files[0];
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("receiver", selectedUser);
-      await fetch("/api/upload", {
-        method: "POST",
-        body: formData
-      });
-      document.getElementById("file").value = "";
-      fetchConversations();
-    });
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  }
 
+  document.getElementById("send-form").addEventListener("submit", async e => {
+    e.preventDefault();
+    const content = document.getElementById("message").value;
+    if (!selectedUser) return alert("Select a user first!");
+    await fetch("/api/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ receiver: selectedUser, type: "text", content })
+    });
+    document.getElementById("message").value = "";
     fetchConversations();
-    setInterval(fetchConversations, 4000);
-  </script>
+  });
+
+  document.getElementById("file-form").addEventListener("submit", async e => {
+    e.preventDefault();
+    if (!selectedUser) return alert("Select a user first!");
+    const file = document.getElementById("file").files[0];
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("receiver", selectedUser);
+    await fetch("/api/upload", {
+      method: "POST",
+      body: formData
+    });
+    document.getElementById("file").value = "";
+    fetchConversations();
+  });
+
+  fetchConversations();
+  setInterval(fetchConversations, 4000);
+</script>
+
 </body>
 </html>
