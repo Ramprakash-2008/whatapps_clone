@@ -50,6 +50,17 @@ function fetchMessages() {
 }
 setInterval(fetchMessages, 2000);
 fetchMessages();
+function fetchAllUsers() {
+  fetch("/api/users").then(res => res.json()).then(users => {
+    let html = "<b>All Users:</b><br>";
+    users.forEach(user => {
+      html += `<button onclick="showChatWith('${user}')" id="btn-${user}">${user}</button><br>`;
+    });
+    document.getElementById("senders").innerHTML = html;
+  });
+}
+
+fetchAllUsers();
 
 function showChatWith(username) {
   selectedUser = username;
